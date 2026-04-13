@@ -6,6 +6,10 @@ escape_json() {
     printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
+escape_yaml_single() {
+    printf '%s' "$1" | sed "s/'/''/g"
+}
+
 build_json_string_array() {
     [ -z "$1" ] && return 0
     old_ifs=$IFS
@@ -22,16 +26,20 @@ build_json_string_array() {
     printf '%s' "$json_items"
 }
 
-gen_hysteria2_singbox() {
-    case "$crashcore" in
-    *singbox*)
-        ;;
-    *)
-        msg_alert "\033[33m$CORECFG_HY2_ONLY_SINGBOX\033[0m"
-        return 1
-        ;;
-    esac
+build_yaml_list() {
+    [ -z "$1" ] && return 0
+    old_ifs=$IFS
+    IFS=','
+    set -- $1
+    IFS=$old_ifs
+    for item in "$@"; do
+        item=$(decode_uri_field "$item" | sed 's/^ *//; s/ *$//')
+        [ -z "$item" ] && continue
+        printf "      - '%s'\n" "$(escape_yaml_single "$item")"
+    done
+}
 
+parse_hysteria2_uri() {
     hy2_uri=$1
     hy2_name=${2:-Hysteria2}
     hy2_body=${hy2_uri#*://}
@@ -126,6 +134,10 @@ gen_hysteria2_singbox() {
         esac
     done
 
+    return 0
+}
+
+gen_hysteria2_singbox_direct() {
     hy2_name_json=$(escape_json "$hy2_name")
     hy2_server_json=$(escape_json "$hy2_server")
     hy2_password_json=$(escape_json "$hy2_password")
@@ -251,4 +263,88 @@ EOF
         msg_alert "\033[31m$CORECFG_HY2_GEN_FAILED\033[0m"
         return 1
     fi
+}
+
+gen_hysteria2_singbox() {
+    case "$crashcore" in
+    *singbox*)
+        ;;
+    *)
+        msg_alert "\033[33m$CORECFG_HY2_ONLY_SUPPORTED_CORE\033[0m"
+        return 1
+        ;;
+    esac
+
+    parse_hysteria2_uri "$1" "$2" || return 1
+
+    mkdir -p "$CRASHDIR"/providers
+    provider_tag=$(printf '%s' "$hy2_name" | sed 's/[^A-Za-z0-9._-]/_/g')
+    [ -z "$provider_tag" ] && provider_tag='Hysteria2'
+    . "$CRASHDIR"/libs/urlencode.sh
+    provider_name=$(urlencode "$hy2_name")
+    provider_file="./providers/${provider_tag}_hy2_uri"
+    provider_path="$CRASHDIR/${provider_file#./}"
+    printf '%s#%s\n' "$hy2_uri" "$provider_name" >"$provider_path"
+
+    . "$CRASHDIR"/menus/providers_singbox.sh
+    gen_providers "$hy2_name" "$provider_file" "3" "12" "clash.meta" && return 0
+
+    msg_alert "\033[33m$CORECFG_HY2_PROVIDER_FALLBACK\033[0m"
+    gen_hysteria2_singbox_direct
+}
+
+gen_hysteria2_mihomo() {
+    case "$crashcore" in
+    meta)
+        ;;
+    *)
+        msg_alert "\033[33m$CORECFG_HY2_ONLY_SUPPORTED_CORE\033[0m"
+        return 1
+        ;;
+    esac
+
+    parse_hysteria2_uri "$1" "$2" || return 1
+
+    hy2_name_yaml=$(escape_yaml_single "$hy2_name")
+    hy2_server_yaml=$(escape_yaml_single "$hy2_server")
+    hy2_password_yaml=$(escape_yaml_single "$hy2_password")
+    hy2_sni_line=''
+    hy2_alpn_block=''
+    hy2_alpn_line=''
+    hy2_up_line=''
+    hy2_down_line=''
+    hy2_obfs_line=''
+    hy2_obfs_password_line=''
+    [ -n "$hy2_tls_server_name" ] && hy2_sni_line="    sni: '$(escape_yaml_single "$hy2_tls_server_name")'"
+    hy2_alpn_block=$(build_yaml_list "$hy2_alpn" | sed 's/^/  /')
+    [ -n "$hy2_alpn_block" ] && hy2_alpn_line="    alpn:
+$hy2_alpn_block"
+    echo "$hy2_up" | grep -Eq '^[0-9]+([.][0-9]+)?$' && hy2_up_line="    up: '$(escape_yaml_single "$hy2_up Mbps")'"
+    echo "$hy2_down" | grep -Eq '^[0-9]+([.][0-9]+)?$' && hy2_down_line="    down: '$(escape_yaml_single "$hy2_down Mbps")'"
+    [ -n "$hy2_obfs_type" ] && hy2_obfs_line="    obfs: '$(escape_yaml_single "$hy2_obfs_type")'"
+    [ -n "$hy2_obfs_password" ] && hy2_obfs_password_line="    obfs-password: '$(escape_yaml_single "$hy2_obfs_password")'"
+
+    mkdir -p "$CRASHDIR"/providers
+    provider_tag=$(printf '%s' "$hy2_name" | sed 's/[^A-Za-z0-9._-]/_/g')
+    [ -z "$provider_tag" ] && provider_tag='Hysteria2'
+    provider_file="./providers/${provider_tag}_hy2.yaml"
+    provider_path="$CRASHDIR/${provider_file#./}"
+    cat >"$provider_path" <<EOF
+proxies:
+  - name: '$hy2_name_yaml'
+    type: hysteria2
+    server: '$hy2_server_yaml'
+    port: $hy2_port
+    password: '$hy2_password_yaml'
+$hy2_up_line
+$hy2_down_line
+$hy2_obfs_line
+$hy2_obfs_password_line
+$hy2_sni_line
+    skip-cert-verify: $hy2_insecure
+$hy2_alpn_line
+EOF
+
+    . "$CRASHDIR"/menus/providers_clash.sh
+    gen_providers "$hy2_name" "$provider_file" "3" "12" "clash.meta"
 }

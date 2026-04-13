@@ -269,7 +269,16 @@ setproviders() {
                 gen_providers "$name" "$link" "$interval" "$interval2" "$ua" "#$exclude_w" "#$include_w"
             elif [ -n "$link_uri" ] && echo "$link_uri" | grep -qE '^(hysteria2|hy2)://'; then
                 [ -z "$name" ] && name='Hysteria2'
-                saveproviders && gen_hysteria2_singbox "$link_uri" "$name" && break
+                saveproviders && {
+                    if echo "$crashcore" | grep -q 'singbox'; then
+                        gen_hysteria2_singbox "$link_uri" "$name"
+                    elif [ "$crashcore" = meta ]; then
+                        gen_hysteria2_mihomo "$link_uri" "$name"
+                    else
+                        msg_alert "\033[33m$CORECFG_HY2_ONLY_SUPPORTED_CORE\033[0m"
+                        false
+                    fi
+                } && break
             elif [ -n "$link_uri" ]; then
                 msg_alert "\033[33m$CORECFG_LOCAL_SHARE_UNSUPPORTED\033[0m"
             else
