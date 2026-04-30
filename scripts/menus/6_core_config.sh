@@ -13,7 +13,19 @@ else
     CONFIG_PATH="$CRASHDIR"/yamls/config.yaml
     CORE_TYPE=clash
 fi
-URI_EXP='ss|vmess|vless|trojan|tuic|anytls|shadowtls|hysteria(2)?'
+URI_EXP='ss|vmess|vless|trojan|tuic|anytls|shadowtls|hysteria(2)?|hy2'
+. "$CRASHDIR"/libs/hy2_uri.sh
+
+prompt_apply_generated_config() {
+    comp_box "$CORECFG_START_APPLY"
+    btm_box "1) $CORECFG_YES" \
+        "0) $CORECFG_NO_BACK"
+    read -r -p "$COMMON_INPUT> " res
+    [ "$res" = 1 ] && {
+        start_core
+        exit
+    }
+}
 
 # 配置文件主界面
 set_core_config() {
@@ -230,7 +242,7 @@ setproviders() {
                     ;;
                 *)
                     # 处理分享链接
-                    if [ -n "$(echo "$text" | grep -E "^$URI_EXP")" ]; then
+                    if [ -n "$(echo "$text" | grep -E "^($URI_EXP)://")" ]; then
                         link_uri=$(echo "$text" | sed 's/#.*//g') # 删除注释
                         link=''
                         [ -z "$name" ] && name=$(printf '%b' "$(printf '%s' "$text" | sed 's/+/ /g; s/%/\\x/g')" | sed 's/.*#//')
@@ -255,6 +267,20 @@ setproviders() {
                 saveproviders
                 . "$CRASHDIR/menus/providers_$CORE_TYPE.sh"
                 gen_providers "$name" "$link" "$interval" "$interval2" "$ua" "#$exclude_w" "#$include_w"
+            elif [ -n "$link_uri" ] && echo "$link_uri" | grep -qE '^(hysteria2|hy2)://'; then
+                [ -z "$name" ] && name='Hysteria2'
+                saveproviders && {
+                    if echo "$crashcore" | grep -q 'singbox'; then
+                        gen_hysteria2_singbox "$link_uri" "$name"
+                    elif [ "$crashcore" = meta ]; then
+                        gen_hysteria2_mihomo "$link_uri" "$name"
+                    else
+                        msg_alert "\033[33m$CORECFG_HY2_ONLY_SUPPORTED_CORE\033[0m"
+                        false
+                    fi
+                } && break
+            elif [ -n "$link_uri" ]; then
+                msg_alert "\033[33m$CORECFG_LOCAL_SHARE_UNSUPPORTED\033[0m"
             else
                 msg_alert "\033[31m$CORECFG_FILL_REQUIRED\033[0m"
             fi
